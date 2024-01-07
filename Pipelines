@@ -1,0 +1,37 @@
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import make_column_selector
+import numpy as np
+
+# Numerical pipeline
+num_pipeline = Pipeline([
+    ('imputer', SimpleImputer(strategy="median")),
+    ('scaler', StandardScaler())
+])
+
+# Categorical pipeline
+cat_pipeline = Pipeline([
+    ('imputer', SimpleImputer(strategy="most_frequent")),
+    ('encoder', OneHotEncoder(handle_unknown="ignore"))
+])
+
+# Column Transformer
+preprocessing = ColumnTransformer(
+    transformers=[
+        ('num', num_pipeline, make_column_selector(dtype_include=np.number)),
+        ('cat', cat_pipeline, make_column_selector(dtype_include=object))
+    ]
+)
+
+
+# Assuming X is the feature matrix and y is the target variable
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Fit the preprocessing pipeline on the training data
+preprocessing.fit(X_train)
+
+# Transform the training and testing data
+X_train_transformed = preprocessing.transform(X_train)
+X_test_transformed = preprocessing.transform(X_test)
