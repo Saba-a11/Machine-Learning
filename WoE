@@ -1,0 +1,133 @@
+def calculate_woe_iv(df, target_column, feature_column, bins=10):
+    """
+    Calculate Weight of Evidence (WOE) and Information Value (IV) for a given feature.
+
+    Parameters:
+    - df: DataFrame containing the data.
+    - target_column: Name of the target variable column.
+    - feature_column: Name of the feature variable column for which WOE and IV are calculated.
+    - bins: Number of bins for discretizing the continuous variable.
+
+    Returns:
+    - woe_iv_df: DataFrame containing WOE, IV, and count values for each bin.
+    """
+    # Create a copy of the input DataFrame to avoid modifying the original
+    df_copy = df.copy()
+
+    # Discretize the feature variable into bins
+    df_copy['binned_feature'] = pd.qcut(df_copy[feature_column], q=bins, duplicates='drop')
+
+    # Calculate the count of positive and negative instances in each bin
+    grouped_df = df_copy.groupby('binned_feature').agg({
+        target_column: ['count', 'sum']
+    }).reset_index()
+
+    grouped_df.columns = ['binned_feature', 'total_count', 'positive_count']
+
+    # Calculate the count of negative instances in each bin
+    grouped_df['negative_count'] = grouped_df['total_count'] - grouped_df['positive_count']
+
+    # Calculate the proportion of positive and negative instances in each bin
+    grouped_df['positive_rate'] = grouped_df['positive_count'] / grouped_df['positive_count'].sum()
+    grouped_df['negative_rate'] = grouped_df['negative_count'] / grouped_df['negative_count'].sum()
+
+    # Calculate WOE and IV
+    grouped_df['woe'] = np.log(grouped_df['positive_rate'] / grouped_df['negative_rate'])
+    grouped_df['iv'] = (grouped_df['positive_rate'] - grouped_df['negative_rate']) * grouped_df['woe']
+
+    # Add a count column to represent the number of observations in each bin
+    grouped_df['count'] = grouped_df['total_count']
+
+    # Sum up IV values for each bin
+    total_iv = grouped_df['iv'].sum()
+
+    # Sort the DataFrame by the feature values
+    woe_iv_df = grouped_df.sort_values(by='binned_feature').reset_index(drop=True)
+
+    # Display Information Value (IV) for the entire feature
+    print(f"Information Value (IV) for {feature_column}: {total_iv}")
+
+    return woe_iv_df[['binned_feature', 'woe', 'iv', 'count']]
+
+
+
+def plot_woe(df_WoE, rotation_of_x_axis_labels = 0):
+  # WOE plot
+  x = np.array(df_WoE.iloc[: , 0].apply(str))
+  y = df_WoE['woe']
+  plt.figure(figsize = (18, 6))
+  plt.plot(x, y, marker = 'o', linestyle = '--', color = 'k')
+  plt.xlabel(df_WoE.columns[0])
+  plt.ylabel('Weight of Evidence')
+  plt.title(str('Weight of Evidence by ' + df_WoE.columns[0]))
+  plt.xticks(rotation = rotation_of_x_axis_labels)
+  plt.show()
+
+
+numerical_features = ['CreditScore', 'Age', 'Balance', 'EstimatedSalary']
+
+woe_iv_result = calculate_woe_iv(df, 'Exited', 'Age', bins=20)
+plot_woe(woe_iv_result, 45)
+
+df['Age: <= 34'] = df['Age'].apply(lambda x: 1 if x <= 34 else 0)
+df['Age: 34-40'] = df['Age'].apply(lambda x: 1 if (x > 34 and x <= 40) else 0)
+df['Age: 40-46'] = df['Age'].apply(lambda x: 1 if (x > 40 and x <= 46) else 0)
+df['Age: 46-56'] = df['Age'].apply(lambda x: 1 if (x > 46 and x <= 56) else 0)
+df['Age: > 56'] = df['Age'].apply(lambda x: 1 if x > 56 else 0)
+
+woe_iv_result = calculate_woe_iv(df, 'Exited', 'Balance', bins=10)
+plot_woe(woe_iv_result, 45)
+
+df['Balance: <= 92'] = df['Balance'].apply(lambda x: 1 if x <= 92000 else 0)
+df['Balance: 92-110'] = df['Balance'].apply(lambda x: 1 if (x > 92000 and x <= 110000) else 0)
+df['Balance: 110-125'] = df['Balance'].apply(lambda x: 1 if (x > 110000 and x <= 125000) else 0)
+df['Balance: 125-140'] = df['Balance'].apply(lambda x: 1 if (x > 125000 and x <= 140000) else 0)
+df['Balance: > 140'] = df['Balance'].apply(lambda x: 1 if x > 140000 else 0)
+
+# List of numerical and categorical features
+numerical_features = ['CreditScore', 'EstimatedSalary']
+categorical_features = ['Geography', 'Gender','Tenure','NumOfProducts', 'HasCrCard', 'IsActiveMember'
+                       , 'Age: <= 34', 'Age: 34-40',
+                      'Age: 40-46', 'Age: 46-56', 'Age: > 56','Balance: <= 92', 'Balance: 92-110', 'Balance: 110-125'
+                     , 'Balance: 125-140', 'Balance: > 140']
+
+# Test for numerical features
+numerical_p_values = test_numerical_features(df, numerical_features, 'Exited')
+print("P-values for numerical features:")
+print(numerical_p_values)
+
+# Test for categorical features
+categorical_p_values = test_categorical_features(df, categorical_features, 'Exited')
+print("\nP-values for categorical features:")
+print(categorical_p_values)
+
+selected_columns = [
+                    'CreditScore',
+                    'Geography_Germany',
+                    'Geography_Spain',
+                    'Geography_France',
+                    'Gender_Male',
+                    'Age: <= 34',
+                    'Age: 34-40',
+                    'Age: 40-46',
+                    'Age: 46-56',
+                    'Age: > 56',
+                    'Tenure',
+                    'Balance: <= 92 ',
+                    'Balance: 92-110',
+                    'Balance: 110-125',
+                    'Balance: 125-140',
+                    'Balance: > 140',
+                    'NumOfProducts',
+                    'HasCrCard',
+                    'IsActiveMember',
+                    'EstimatedSalary'
+]
+
+# Training data:
+X = df_train[selected_columns]
+y = df_train['Exited']
+
+# Testing data:
+W = df_test[selected_columns]
+z = df_test['Exited']
