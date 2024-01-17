@@ -1,0 +1,261 @@
+Wavelet Analysis
+PIL.Image.open("/kaggle/input/wavelet/wavelet.jpg").resize((600, 600))
+
+Wavelet functions are mathematical functions used in wavelet analysis, a mathematical technique that breaks down a signal into components at different scales. Unlike traditional Fourier analysis, which uses sine and cosine functions, wavelet analysis uses wavelet functions that are localized in both time and frequency.
+
+The key characteristic of wavelet functions is their ability to capture both high and low-frequency components of a signal with good localization. They are particularly useful in analyzing signals with transient features or sharp changes.
+
+Wavelet functions are employed in various applications, including signal processing, image compression, data compression, and feature extraction. They allow for a more efficient representation of signals by concentrating on specific time intervals and frequency bands.
+
+Different wavelet functions have different properties, and the choice of a specific wavelet depends on the characteristics of the signal being analyzed and the requirements of the application. The code you provided earlier allows you to list available wavelet functions and choose one for further analysis using the PyWavelets library.
+
+import pywt
+​
+def display_available_wavelets():
+    print("Available wavelet functions:")
+    print(pywt.wavelist())
+​
+# Set the default wavelet to None
+USE_WAVELET = None
+​
+# Display available wavelets
+display_available_wavelets()
+
+The provided code uses the Librosa library to compute the Mel spectrogram of an audio signal. The result, mel_spec, is a two-dimensional array representing the Mel spectrogram of the input audio signal. Mel spectrograms are widely used in audio signal processing and are particularly useful for tasks like speech and music analysis. They provide a frequency representation that aligns more closely with human perception of sound.
+
+add Codeadd Markdown
+A better wavelet function for your EEG spectrogram would be one that has good time-frequency resolution, smooth and continuous shape, and phase information. One possible choice is the analytic Morlet wavelet, which is a complex-valued wavelet that has a Gaussian envelope and a sinusoidal carrier. The analytic Morlet wavelet has equal variance in time and frequency, which means it can capture both transient and stationary features of the EEG signals. It also provides phase information, which can be useful for analyzing the synchronization and coherence of EEG signals. The analytic Morlet wavelet is widely used in EEG analysis and has shown promising results. For more information please read Link 1 and Link 2
+
+add Codeadd Markdown
+To use the analytic Morlet wavelet in my code, I need to import the cwt function from the pywt module, which performs the continuous wavelet transform. I also need to specify the wavelet name as cmor, which stands for complex Morlet. I adjust the parameters of the wavelet by adding a dash and two numbers after the name, such as cmor1-1.5. The first number is the bandwidth parameter, which controls the trade-off between time and frequency resolution. The second number is the center frequency parameter, which determines the frequency range of the wavelet. I refer to the documentation for more details on how to choose these parameters.
+
+To generate the spectrogram from the CWT coefficients, I need to use the np.abs function to get the magnitude of the complex values. I also use the np.angle function to get the phase of the complex values. I use the librosa.power_to_db function to convert the magnitude to decibels.
+
+import os
+import numpy as np
+import pandas as pd
+import pywt
+import librosa
+import matplotlib.pyplot as plt
+
+NAMES = ['C', 'VC', 'HC', 'LL', 'LC', 'RR', 'RC', 'HU', 'HD']
+
+FEATS = [
+    ['Cz'],
+    ['Fz', 'Cz', 'Pz'],
+    ['T3', 'C3', 'Cz', 'C4', 'T4'],
+    ['Fp1', 'F7', 'T3', 'T5', 'O1'],
+    ['Fp1', 'F3', 'C3', 'P3', 'O1'],
+    ['Fp2', 'F8', 'T4', 'T6', 'O2'],
+    ['Fp2', 'F4', 'C4', 'P4', 'O2'],
+    ['F7', 'F3', 'Fz', 'F4', 'F8'],
+    ['T5', 'P3', 'Pz', 'P4', 'T6']
+]
+
+USE_WAVELET = 'haar'
+
+directory_path = 'EEG_Spectrograms/'
+if not os.path.exists(directory_path):
+    os.makedirs(directory_path)
+
+def maddest(d, axis=None):
+    return np.mean(np.absolute(d - np.mean(d, axis)), axis)
+
+def denoise(x, wavelet='haar', level=1):
+    coeff = pywt.wavedec(x, wavelet, mode="per")
+    sigma = (1/0.6745) * maddest(coeff[-level])
+    uthresh = sigma * np.sqrt(2*np.log(len(x)))
+    coeff[1:] = (pywt.threshold(i, value=uthresh, mode='hard') for i in coeff[1:])
+    ret = pywt.waverec(coeff, wavelet, mode='per')
+    return ret
+
+def spectrogram_from_eeg(parquet_path, display=False):
+    eeg = pd.read_parquet(parquet_path)
+    middle = (len(eeg)-10_000)//2
+    eeg = eeg.iloc[middle:middle+10_000]
+
+    img = np.zeros((128, 256, len(NAMES)), dtype='float32')
+
+    if display:
+        plt.figure(figsize=(10, 7))
+        
+    signals = []
+    for k, name in enumerate(NAMES):
+        COLS = FEATS[k]
+        x = 0
+        for j in range(len(COLS)):
+            x += eeg[COLS[j]].values
+        x /= len(COLS)
+        signals.append(x)
+
+        m = np.nanmean(x)
+        if np.isnan(x).mean() < 1:
+            x = np.nan_to_num(x, nan=m)
+        else:
+            x[:] = 0
+
+        if USE_WAVELET:
+            x = denoise(x, wavelet=USE_WAVELET)
+
+        mel_spec = librosa.feature.melspectrogram(y=x, sr=200, hop_length=len(x)//256,
+                                                  n_fft=1024, n_mels=128, fmin=0, fmax=20, win_length=128)
+
+        width = (mel_spec.shape[1]//32)*32
+        mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max).astype(np.float32)[:,:width]
+
+        mel_spec_db = (mel_spec_db+40)/40
+
+        img[:,:,k] = mel_spec_db
+        if display:
+            plt.subplot(3, 3, k+1)
+            plt.imshow(mel_spec_db, aspect='auto', origin='lower')
+            plt.title(f'Spectrogram {name}')
+
+    if display:
+        plt.show()
+        plt.figure(figsize=(10, 5))
+        offset = 0
+        for k, name in enumerate(NAMES):
+            if k > 0:
+                offset -= signals[len(NAMES)-k-1].min()
+            plt.plot(range(10_000), signals[len(NAMES)-k-1]+offset, label=name)
+            offset += signals[len(NAMES)-k-1].max()
+        plt.legend()
+        plt.title('Signals')
+        plt.show()
+        print(); print('#'*25); print()
+
+    return img
+
+PATH = '/kaggle/input/hms-harmful-brain-activity-classification/train_eegs/'
+DISPLAY = 4
+CREATE_SPECTROGRAMS = True  # Set to False if reading spectrograms from disk
+
+EEG_IDS = df_train.eeg_id.unique()
+all_eegs = {}
+
+for i, eeg_id in enumerate(EEG_IDS):
+    if (i % 100 == 0) and (i != 0):
+        print(i, ', ', end='')
+
+    display = i < DISPLAY
+    img = spectrogram_from_eeg(f'{PATH}{eeg_id}.parquet', display)
+
+    if i == DISPLAY:
+        if CREATE_SPECTROGRAMS:
+            print(f'Creating and writing {len(EEG_IDS)} spectrograms to disk... ', end='')
+        else:
+            print(f'Reading {len(EEG_IDS)} spectrograms from disk.')
+            break
+    if CREATE_SPECTROGRAMS:
+        np.save(f'{directory_path}{eeg_id}', img)
+    all_eegs[eeg_id] = img
+
+if not CREATE_SPECTROGRAMS:
+    all_eegs = np.load('/kaggle/input/hms-harmful-brain-activity-classification/eeg-spectrograms/eeg_specs.npy', allow_pickle=True).item()
+else:
+    np.save('eeg_specs', all_eegs)
+
+
+
+
+# other
+def maddest(d, axis=None):
+    return np.mean(np.absolute(d - np.mean(d, axis)), axis)
+
+def denoise(x, wavelet='haar', level=1):
+    coeff = pywt.wavedec(x, wavelet, mode="per")
+    sigma = (1/0.6745) * maddest(coeff[-level])
+    uthresh = sigma * np.sqrt(2*np.log(len(x)))
+    coeff[1:] = (pywt.threshold(i, value=uthresh, mode='hard') for i in coeff[1:])
+    ret = pywt.waverec(coeff, wavelet, mode='per')
+    return ret
+
+def spectrogram_from_eeg(parquet_path, display=False):
+    eeg = pd.read_parquet(parquet_path)
+    middle = (len(eeg)-10_000)//2
+    eeg = eeg.iloc[middle:middle+10_000]
+
+    img = np.zeros((128, 256, len(NAMES)), dtype='float32')
+
+    if display:
+        plt.figure(figsize=(15, 15))  # Increase the figure size for better visibility
+        plt.subplots_adjust(hspace=0.5)  # Adjust the vertical space between subplots
+        
+    signals = []
+    for k, name in enumerate(NAMES):
+        COLS = FEATS[k]
+        x = 0
+        for j in range(len(COLS)):
+            x += eeg[COLS[j]].values
+        x /= len(COLS)
+        signals.append(x)
+
+        m = np.nanmean(x)
+        if np.isnan(x).mean() < 1:
+            x = np.nan_to_num(x, nan=m)
+        else:
+            x[:] = 0
+
+        if USE_WAVELET:
+            x = denoise(x, wavelet=USE_WAVELET)
+
+        mel_spec = librosa.feature.melspectrogram(y=x, sr=200, hop_length=len(x)//256,
+                                                  n_fft=1024, n_mels=128, fmin=0, fmax=20, win_length=128)
+
+        width = (mel_spec.shape[1]//32)*32
+        mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max).astype(np.float32)[:,:width]
+
+        mel_spec_db = (mel_spec_db+40)/40
+
+        if display:
+            plt.subplot(3, 3, k+1)
+            plt.imshow(mel_spec_db, aspect='auto', origin='lower')
+            plt.title(f'Spectrogram {name} - EEG ID: {eeg_id}')
+
+    if display:
+        plt.show()
+        plt.figure(figsize=(15, 10))
+        offset = 0
+        for k, name in enumerate(NAMES):
+            if k > 0:
+                offset -= signals[len(NAMES)-k-1].min()
+            plt.plot(range(10_000), signals[len(NAMES)-k-1]+offset, label=name)
+            offset += signals[len(NAMES)-k-1].max()
+        plt.legend()
+        plt.title('Signals - EEG ID: {eeg_id}')
+        plt.show()
+        print(); print('#'*25); print()
+
+    return img
+
+PATH = '/kaggle/input/hms-harmful-brain-activity-classification/train_eegs/'
+DISPLAY = 4
+CREATE_SPECTROGRAMS = True  # Set to False if reading spectrograms from disk
+
+EEG_IDS = df_train.eeg_id.unique()
+all_eegs = {}
+
+for i, eeg_id in enumerate(EEG_IDS):
+    if (i % 100 == 0) and (i != 0):
+        print(i, ', ', end='')
+
+    display = i < DISPLAY
+    img = spectrogram_from_eeg(f'{PATH}{eeg_id}.parquet', display)
+
+    if i == DISPLAY:
+        if CREATE_SPECTROGRAMS:
+            print(f'Creating and writing {len(EEG_IDS)} spectrograms to disk... ', end='')
+        else:
+            print(f'Reading {len(EEG_IDS)} spectrograms from disk.')
+            break
+    if CREATE_SPECTROGRAMS:
+        np.save(f'{directory_path}{eeg_id}', img)
+#         np.savez(f'{directory_path}{eeg_id}.npz', img=img)
+    all_eegs[eeg_id] = img
+
+if not CREATE_SPECTROGRAMS:
+    all_eegs = np.load('/kaggle/input/hms-harmful-brain-activity-classification/eeg-spectrograms/eeg_specs.npy', allow_pickle=True).item()
+else:
+    np.save('eeg_specs', all_eegs)   
+
